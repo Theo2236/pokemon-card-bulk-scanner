@@ -2,7 +2,7 @@
 
 AI-powered bulk scanner voor Pokémon TCG kaarten. Upload één foto met meerdere kaarten (bijv. 10 stuks) en de app:
 
-1. **Herken** elke kaart via Vision AI (Gemini of OpenAI)
+1. **Herken** elke kaart via Vision AI (Gemini, met Anthropic als fallback)
 2. **Zoek** de kaart op in de [Pokémon TCG API](https://pokemontcg.io/)
 3. **Toon** marktprijzen (TCGPlayer, USD) en een totale collectiewaarde
 
@@ -25,8 +25,8 @@ cp .env.example .env.local
 
 | Variabele | Vereist | Beschrijving |
 |-----------|---------|--------------|
-| `GEMINI_API_KEY` | Eén van beide | [Google AI Studio](https://aistudio.google.com/apikey) — aanbevolen |
-| `OPENAI_API_KEY` | Eén van beide | Fallback vision provider |
+| `GEMINI_API_KEY` | Eén van beide | [Google AI Studio](https://aistudio.google.com/apikey) — primair |
+| `ANTHROPIC_API_KEY` | Eén van beide | [Anthropic Console](https://console.anthropic.com/) — fallback als Gemini faalt |
 | `POKEMON_TCG_API_KEY` | Aanbevolen | Gratis op [dev.pokemontcg.io](https://dev.pokemontcg.io/) |
 
 ### 3. Starten
@@ -70,7 +70,7 @@ Next.js App Router
 └── /api/health           → Config check
 
 src/lib/
-├── vision.ts             → Gemini / OpenAI bulk detectie
+├── vision.ts             → Gemini / Anthropic bulk detectie
 ├── pokemon-tcg.ts        → Pokémon TCG API client
 └── types.ts              → Gedeelde types
 ```

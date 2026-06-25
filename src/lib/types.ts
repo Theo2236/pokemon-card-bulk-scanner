@@ -56,7 +56,7 @@ export type ScanSummary = {
 export type ScanResponse = {
   id: string;
   scannedAt: string;
-  provider: "gemini" | "openai";
+  provider: "gemini" | "anthropic";
   cards: MatchedCard[];
   summary: ScanSummary;
 };

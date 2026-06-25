@@ -4,11 +4,18 @@ import { useCallback, useRef, useState } from "react";
 import { fileToBase64 } from "@/lib/format";
 
 type ScannerUploadProps = {
-  onScan: (payload: { image: string; mimeType: string }) => Promise<void>;
+  onScan: (payload: { image: string; mimeType: string; dataUrl: string }) => Promise<void>;
   isScanning: boolean;
+  label?: string;
+  compact?: boolean;
 };
 
-export function ScannerUpload({ onScan, isScanning }: ScannerUploadProps) {
+export function ScannerUpload({
+  onScan,
+  isScanning,
+  label = "Sleep of klik om een foto toe te voegen",
+  compact = false,
+}: ScannerUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -32,8 +39,11 @@ export function ScannerUpload({ onScan, isScanning }: ScannerUploadProps) {
       setPreview(objectUrl);
 
       try {
-        const { base64, mimeType } = await fileToBase64(file);
-        await onScan({ image: base64, mimeType });
+        const { base64, mimeType, dataUrl } = await fileToBase64(file);
+        await onScan({ image: base64, mimeType, dataUrl });
+        URL.revokeObjectURL(objectUrl);
+        setPreview(null);
+        if (inputRef.current) inputRef.current.value = "";
       } catch {
         setError("Kon de afbeelding niet verwerken.");
       }
@@ -52,7 +62,11 @@ export function ScannerUpload({ onScan, isScanning }: ScannerUploadProps) {
   );
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur">
+    <section
+      className={`rounded-2xl border border-white/10 bg-white/5 backdrop-blur ${
+        compact ? "p-4" : "p-6"
+      }`}
+    >
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -60,7 +74,9 @@ export function ScannerUpload({ onScan, isScanning }: ScannerUploadProps) {
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
-        className={`relative flex min-h-64 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 transition ${
+        className={`relative flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed transition ${
+          compact ? "min-h-32 p-4" : "min-h-48 p-8"
+        } ${
           dragOver
             ? "border-yellow-300 bg-yellow-300/10"
             : "border-white/20 hover:border-white/40 hover:bg-white/5"
@@ -84,18 +100,26 @@ export function ScannerUpload({ onScan, isScanning }: ScannerUploadProps) {
           <img
             src={preview}
             alt="Preview van geüploade kaarten"
-            className="max-h-72 w-full rounded-lg object-contain"
+            className={`w-full rounded-lg object-contain ${compact ? "max-h-40" : "max-h-72"}`}
           />
         ) : (
           <div className="text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-yellow-400/20 text-3xl">
+            <div
+              className={`mx-auto mb-3 flex items-center justify-center rounded-full bg-yellow-400/20 text-2xl ${
+                compact ? "h-10 w-10" : "h-14 w-14 text-3xl"
+              }`}
+            >
               📸
             </div>
-            <h2 className="text-lg font-semibold text-white">Sleep of klik om te uploaden</h2>
-            <p className="mt-2 max-w-md text-sm text-white/60">
-              Leg tot 10–12 kaarten naast elkaar en maak één foto. De AI herkent elke kaart en
-              haalt marktprijzen op.
-            </p>
+            <h2 className={`font-semibold text-white ${compact ? "text-sm" : "text-lg"}`}>
+              {label}
+            </h2>
+            {!compact && (
+              <p className="mt-2 max-w-md text-sm text-white/60">
+                Leg kaarten naast elkaar en maak een foto. Je kunt meerdere foto&apos;s per album
+                toevoegen.
+              </p>
+            )}
           </div>
         )}
 

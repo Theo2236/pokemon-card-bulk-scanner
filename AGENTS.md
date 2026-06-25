@@ -10,5 +10,5 @@ AI bulk scanner: upload een foto met meerdere Pokémon kaarten → Vision AI her
 
 ## Env vars
 
-- `GEMINI_API_KEY` of `OPENAI_API_KEY` (vision)
+- `GEMINI_API_KEY` primair, `ANTHROPIC_API_KEY` fallback (vision)
 - `POKEMON_TCG_API_KEY` (prijsdata)
