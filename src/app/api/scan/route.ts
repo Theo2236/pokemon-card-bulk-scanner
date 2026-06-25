@@ -23,7 +23,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "Vision AI niet geconfigureerd. Voeg GEMINI_API_KEY of OPENAI_API_KEY toe.",
+            "Vision AI niet geconfigureerd. Voeg GEMINI_API_KEY of ANTHROPIC_API_KEY toe.",
         },
         { status: 500 },
       );
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       imageBase64,
       mimeType: body.mimeType,
       geminiKey: config.geminiKey,
-      openaiKey: config.openaiKey,
+      anthropicKey: config.anthropicKey,
       maxCards: config.maxCards,
     });
 

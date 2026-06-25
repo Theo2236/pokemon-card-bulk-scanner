@@ -10,7 +10,7 @@ description: >-
 ## Architectuur
 
 ```
-Upload foto → POST /api/scan → vision.ts (Gemini/OpenAI)
+Upload foto → POST /api/scan → vision.ts (Gemini/Anthropic)
   → pokemon-tcg.ts (Pokémon TCG API) → prijzen + totaal
 ```
 
@@ -22,7 +22,7 @@ Kernbestanden:
 
 ## Env vars
 
-- `GEMINI_API_KEY` of `OPENAI_API_KEY` (minstens één)
+- `GEMINI_API_KEY` primair, `ANTHROPIC_API_KEY` fallback (minstens één)
 - `POKEMON_TCG_API_KEY` (aanbevolen)
 - `MAX_CARDS_PER_SCAN` (optioneel, default 12)
 

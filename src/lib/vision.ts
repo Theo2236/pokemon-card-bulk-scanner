@@ -112,30 +112,38 @@ async function analyzeWithGemini(
   return parseVisionJson(text).slice(0, maxCards);
 }
 
-async function analyzeWithOpenAI(
+async function analyzeWithAnthropic(
   imageBase64: string,
   mimeType: string,
   apiKey: string,
   maxCards: number,
 ): Promise<DetectedCard[]> {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
       temperature: 0.1,
-      response_format: { type: "json_object" },
       messages: [
         {
           role: "user",
           content: [
-            { type: "text", text: `${VISION_PROMPT}\n\nMaximaal ${maxCards} kaarten.` },
             {
-              type: "image_url",
-              image_url: { url: `data:${mimeType};base64,${imageBase64}` },
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: mimeType,
+                data: imageBase64,
+              },
+            },
+            {
+              type: "text",
+              text: `${VISION_PROMPT}\n\nMaximaal ${maxCards} kaarten.`,
             },
           ],
         },
@@ -145,15 +153,15 @@ async function analyzeWithOpenAI(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`OpenAI API fout (${response.status}): ${errorText}`);
+    throw new Error(`Anthropic API fout (${response.status}): ${errorText}`);
   }
 
   const payload = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
+    content?: Array<{ type: string; text?: string }>;
   };
 
-  const text = payload.choices?.[0]?.message?.content;
-  if (!text) throw new Error("OpenAI gaf geen resultaat terug");
+  const text = payload.content?.find((block) => block.type === "text")?.text;
+  if (!text) throw new Error("Anthropic gaf geen resultaat terug");
 
   return parseVisionJson(text).slice(0, maxCards);
 }
@@ -162,20 +170,27 @@ export async function analyzeBulkPhoto(options: {
   imageBase64: string;
   mimeType: string;
   geminiKey?: string;
-  openaiKey?: string;
+  anthropicKey?: string;
   maxCards: number;
-}): Promise<{ cards: DetectedCard[]; provider: "gemini" | "openai" }> {
-  const { imageBase64, mimeType, geminiKey, openaiKey, maxCards } = options;
+}): Promise<{ cards: DetectedCard[]; provider: "gemini" | "anthropic" }> {
+  const { imageBase64, mimeType, geminiKey, anthropicKey, maxCards } = options;
 
   if (geminiKey) {
-    const cards = await analyzeWithGemini(imageBase64, mimeType, geminiKey, maxCards);
-    return { cards, provider: "gemini" };
+    try {
+      const cards = await analyzeWithGemini(imageBase64, mimeType, geminiKey, maxCards);
+      return { cards, provider: "gemini" };
+    } catch (geminiError) {
+      if (!anthropicKey) throw geminiError;
+      console.warn("Gemini mislukt, fallback naar Anthropic:", geminiError);
+      const cards = await analyzeWithAnthropic(imageBase64, mimeType, anthropicKey, maxCards);
+      return { cards, provider: "anthropic" };
+    }
   }
 
-  if (openaiKey) {
-    const cards = await analyzeWithOpenAI(imageBase64, mimeType, openaiKey, maxCards);
-    return { cards, provider: "openai" };
+  if (anthropicKey) {
+    const cards = await analyzeWithAnthropic(imageBase64, mimeType, anthropicKey, maxCards);
+    return { cards, provider: "anthropic" };
   }
 
-  throw new Error("Geen vision provider geconfigureerd (GEMINI_API_KEY of OPENAI_API_KEY)");
+  throw new Error("Geen vision provider geconfigureerd (GEMINI_API_KEY of ANTHROPIC_API_KEY)");
 }
