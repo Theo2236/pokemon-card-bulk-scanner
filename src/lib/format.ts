@@ -1,11 +1,40 @@
 import type { CardCondition, MatchedCard, ScanResponse } from "@/lib/types";
 
+/** Vaste wisselkoers USD → EUR voor PnL-berekening */
+export const USD_TO_EUR = 0.92;
+
+export function usdToEur(usd: number): number {
+  return usd * USD_TO_EUR;
+}
+
 export function formatUsd(value?: number): string {
   if (value === undefined || Number.isNaN(value)) return "—";
   return new Intl.NumberFormat("nl-NL", {
     style: "currency",
     currency: "USD",
   }).format(value);
+}
+
+export function formatEur(value?: number): string {
+  if (value === undefined || Number.isNaN(value)) return "—";
+  return new Intl.NumberFormat("nl-NL", {
+    style: "currency",
+    currency: "EUR",
+  }).format(value);
+}
+
+export function formatPnl(value?: number): string {
+  if (value === undefined || Number.isNaN(value)) return "—";
+  const formatted = formatEur(value);
+  if (value > 0) return `+${formatted}`;
+  return formatted;
+}
+
+export function pnlColor(value?: number): string {
+  if (value === undefined) return "text-white/50";
+  if (value > 0) return "text-emerald-300";
+  if (value < 0) return "text-rose-300";
+  return "text-white/70";
 }
 
 export function conditionLabel(condition: CardCondition): string {
@@ -51,15 +80,15 @@ export function bestMarketPrice(card: ScanResponse["cards"][number]): number | u
   return best;
 }
 
-export async function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
-  const buffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 1) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return {
-    base64: btoa(binary),
-    mimeType: file.type || "image/jpeg",
-  };
+export async function fileToBase64(file: File): Promise<{ base64: string; mimeType: string; dataUrl: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+      resolve({ base64, mimeType: file.type || "image/jpeg", dataUrl });
+    };
+    reader.onerror = () => reject(new Error("Kon bestand niet lezen"));
+    reader.readAsDataURL(file);
+  });
 }
