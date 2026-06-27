@@ -2,7 +2,8 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getConfig } from "@/lib/config";
-import { lookupCards, pickBestMarketPrice } from "@/lib/pokemon-tcg";
+import { bestMarketPrice } from "@/lib/format";
+import { lookupCards } from "@/lib/pokemon-tcg";
 import { analyzeBulkPhoto } from "@/lib/vision";
 import type { ScanResponse } from "@/lib/types";
 
@@ -37,6 +38,8 @@ export async function POST(request: Request) {
       mimeType: body.mimeType,
       geminiKey: config.geminiKey,
       anthropicKey: config.anthropicKey,
+      geminiModel: config.geminiModel,
+      anthropicModel: config.anthropicModel,
       maxCards: config.maxCards,
     });
 
@@ -55,10 +58,10 @@ export async function POST(request: Request) {
       partial: matched.filter((c) => c.matchStatus === "partial").length,
       notFound: matched.filter((c) => c.matchStatus === "not_found").length,
       totalMarketValue: matched.reduce((sum, item) => {
-        if (!item.card?.prices.length) return sum;
-        return sum + pickBestMarketPrice(item.card.prices);
+        const price = bestMarketPrice(item);
+        return price !== undefined ? sum + price : sum;
       }, 0),
-      currency: "USD" as const,
+      currency: "EUR" as const,
     };
 
     const response: ScanResponse = {

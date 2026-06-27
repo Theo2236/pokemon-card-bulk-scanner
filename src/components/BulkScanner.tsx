@@ -47,7 +47,7 @@ export function BulkScanner() {
         </h1>
         <p className="mx-auto mt-4 max-w-2xl text-base text-white/70">
           Upload één foto met meerdere kaarten. Vision AI herkent elke kaart, zoekt ze op in de
-          Pokémon TCG database en toont marktprijzen van TCGPlayer.
+          Pokémon TCG database en toont Cardmarket-prijzen in euro (via TCGdex).
         </p>
       </header>
 
@@ -67,7 +67,7 @@ export function BulkScanner() {
           <li>Leg kaarten plat naast elkaar met goede belichting</li>
           <li>Zorg dat namen en kaartnummers leesbaar zijn</li>
           <li>Vermijd reflecties en sterke schaduwen</li>
-          <li>Prijzen zijn indicatief (TCGPlayer marktprijs, USD)</li>
+          <li>Prijzen zijn indicatief (Cardmarket trend via TCGdex, EUR)</li>
         </ul>
       </footer>
     </div>

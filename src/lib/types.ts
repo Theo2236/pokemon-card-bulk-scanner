@@ -37,7 +37,8 @@ export type MatchedCard = {
     number: string;
     rarity: string;
     imageUrl?: string;
-    tcgplayerUrl?: string;
+    cardmarketUrl?: string;
+    cardmarketProductId?: number;
     prices: CardPrice[];
   };
   searchQuery: string;
@@ -50,7 +51,7 @@ export type ScanSummary = {
   partial: number;
   notFound: number;
   totalMarketValue: number;
-  currency: "USD";
+  currency: "EUR";
 };
 
 export type ScanResponse = {

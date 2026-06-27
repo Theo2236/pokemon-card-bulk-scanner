@@ -1,22 +1,23 @@
 import type { CardPrice, DetectedCard, MatchedCard } from "./types";
+import {
+  extractSetToken,
+  numbersMatch,
+  parseCollectorNumber,
+  setNamesMatch,
+} from "./card-match";
+import { lookupTcgdexPricing } from "./tcgdex";
+
+export { numbersMatch, parseCollectorNumber, setNamesMatch } from "./card-match";
 
 const API_BASE = "https://api.pokemontcg.io/v2";
-
-type TcgPlayerPrices = {
-  normal?: { low?: number; mid?: number; high?: number; market?: number; directLow?: number };
-  holofoil?: { low?: number; mid?: number; high?: number; market?: number; directLow?: number };
-  reverseHolofoil?: { low?: number; mid?: number; high?: number; market?: number; directLow?: number };
-  "1stEditionHolofoil"?: { low?: number; mid?: number; high?: number; market?: number; directLow?: number };
-};
 
 type PokemonCard = {
   id: string;
   name: string;
   number: string;
   rarity: string;
-  set: { name: string };
+  set: { name: string; id?: string };
   images?: { small?: string; large?: string };
-  tcgplayer?: { url?: string; prices?: TcgPlayerPrices };
 };
 
 type SearchResponse = {
@@ -37,55 +38,70 @@ function escapeQuery(value: string): string {
 export function buildSearchQuery(card: DetectedCard): string {
   const parts: string[] = [`name:"${escapeQuery(card.name)}"`];
   if (card.setName) parts.push(`set.name:"${escapeQuery(card.setName)}"`);
-  if (card.cardNumber) {
-    const numberOnly = card.cardNumber.split("/")[0]?.replace(/^0+/, "") ?? card.cardNumber;
-    parts.push(`number:${numberOnly}`);
-  }
+  const number = parseCollectorNumber(card.cardNumber);
+  if (number) parts.push(`number:${number}`);
   return parts.join(" ");
 }
 
-function toPrices(tcg?: TcgPlayerPrices): CardPrice[] {
-  if (!tcg) return [];
-  const entries: CardPrice[] = [];
+export function buildSearchQueries(card: DetectedCard): string[] {
+  const queries: string[] = [];
+  const number = parseCollectorNumber(card.cardNumber);
+  const name = card.name.trim();
 
-  for (const [variant, values] of Object.entries(tcg)) {
-    if (!values) continue;
-    entries.push({
-      variant,
-      low: values.low,
-      mid: values.mid,
-      high: values.high,
-      market: values.market,
-      directLow: values.directLow,
-    });
+  if (name && number) {
+    queries.push(`name:"${escapeQuery(name)}" number:${number}`);
   }
 
-  return entries;
+  if (name && card.setName && number) {
+    queries.push(buildSearchQuery(card));
+
+    const setToken = extractSetToken(card.setName);
+    if (setToken && /^\d+$/.test(setToken)) {
+      queries.push(`name:"${escapeQuery(name)}" number:${number} set.name:*${setToken}*`);
+    }
+  }
+
+  if (name && card.setName) {
+    queries.push(`name:"${escapeQuery(name)}" set.name:"${escapeQuery(card.setName)}"`);
+  }
+
+  queries.push(`name:"${escapeQuery(name)}"`);
+
+  return [...new Set(queries)];
 }
 
-export function pickBestMarketPrice(prices: CardPrice[]): number {
-  let best = 0;
-  for (const price of prices) {
-    const candidate = price.market ?? price.mid ?? price.low ?? 0;
-    if (candidate > best) best = candidate;
-  }
-  return best;
-}
+export function scoreMatch(detected: DetectedCard, card: PokemonCard): number {
+  const detectedName = detected.name.trim().toLowerCase();
+  const cardName = card.name.trim().toLowerCase();
 
-function scoreMatch(detected: DetectedCard, card: PokemonCard): number {
-  let score = 0;
-  const nameMatch = card.name.toLowerCase() === detected.name.toLowerCase();
-  if (nameMatch) score += 50;
-  else if (card.name.toLowerCase().includes(detected.name.toLowerCase())) score += 30;
-
-  if (detected.setName && card.set.name.toLowerCase().includes(detected.setName.toLowerCase())) {
-    score += 25;
+  if (cardName !== detectedName && !cardName.startsWith(`${detectedName} `)) {
+    return 0;
   }
+
+  let score = cardName === detectedName ? 35 : 20;
 
   if (detected.cardNumber) {
-    const normalizedDetected = detected.cardNumber.replace(/^0+/, "");
-    const normalizedCard = card.number.replace(/^0+/, "");
-    if (normalizedDetected === normalizedCard) score += 25;
+    if (numbersMatch(detected.cardNumber, card.number)) {
+      score += 50;
+    } else {
+      score -= 40;
+    }
+  }
+
+  if (detected.setName) {
+    if (setNamesMatch(detected.setName, card.set.name)) {
+      score += 25;
+    } else {
+      score -= 10;
+    }
+  }
+
+  if (detected.rarity && card.rarity) {
+    const rarityA = detected.rarity.toLowerCase();
+    const rarityB = card.rarity.toLowerCase();
+    if (rarityA === rarityB || rarityB.includes(rarityA) || rarityA.includes(rarityB)) {
+      score += 5;
+    }
   }
 
   return score;
@@ -99,90 +115,136 @@ function mapCard(card: PokemonCard) {
     number: card.number,
     rarity: card.rarity,
     imageUrl: card.images?.large ?? card.images?.small,
-    tcgplayerUrl: card.tcgplayer?.url,
-    prices: toPrices(card.tcgplayer?.prices),
+    prices: [] as CardPrice[],
   };
+}
+
+async function attachTcgdexPricing(
+  mapped: NonNullable<MatchedCard["card"]>,
+  detected: DetectedCard,
+): Promise<NonNullable<MatchedCard["card"]>> {
+  try {
+    const pricing = await lookupTcgdexPricing(detected, {
+      name: mapped.name,
+      set: mapped.set,
+      number: mapped.number,
+      rarity: mapped.rarity,
+    });
+
+    if (!pricing) {
+      return mapped;
+    }
+
+    return {
+      ...mapped,
+      cardmarketUrl: pricing.url,
+      cardmarketProductId: pricing.productId,
+      prices: pricing.prices,
+    };
+  } catch (error) {
+    console.warn("TCGdex prijslookup mislukt:", error);
+    return mapped;
+  }
+}
+
+function resolveMatchStatus(
+  detected: DetectedCard,
+  best: PokemonCard,
+  bestScore: number,
+): MatchedCard["matchStatus"] {
+  const hasNumber = Boolean(parseCollectorNumber(detected.cardNumber));
+  const numberMatches = numbersMatch(detected.cardNumber, best.number);
+  const setMatches = setNamesMatch(detected.setName, best.set.name);
+
+  if (hasNumber) {
+    if (numberMatches && (setMatches || !detected.setName) && bestScore >= 60) {
+      return "matched";
+    }
+    if (numberMatches && bestScore >= 45) {
+      return "partial";
+    }
+    return bestScore >= 35 ? "partial" : "not_found";
+  }
+
+  if (setMatches && bestScore >= 55) return "matched";
+  if (bestScore >= 40) return "partial";
+  return "not_found";
+}
+
+async function searchCards(
+  query: string,
+  apiKey?: string,
+  pageSize = 20,
+): Promise<PokemonCard[]> {
+  const url = new URL(`${API_BASE}/cards`);
+  url.searchParams.set("q", query);
+  url.searchParams.set("pageSize", String(pageSize));
+
+  const response = await fetch(url, {
+    headers: buildHeaders(apiKey),
+    next: { revalidate: 3600 },
+  });
+
+  if (!response.ok) return [];
+
+  const payload = (await response.json()) as SearchResponse;
+  return payload.data ?? [];
 }
 
 export async function lookupCard(
   detected: DetectedCard,
   apiKey?: string,
 ): Promise<MatchedCard> {
-  const searchQuery = buildSearchQuery(detected);
+  const searchQueries = buildSearchQueries(detected);
+  const primaryQuery = searchQueries[0] ?? `name:"${escapeQuery(detected.name)}"`;
 
   try {
-    const url = new URL(`${API_BASE}/cards`);
-    url.searchParams.set("q", searchQuery);
-    url.searchParams.set("pageSize", "5");
-    url.searchParams.set("orderBy", "-set.releaseDate");
+    const seen = new Set<string>();
+    const candidates: PokemonCard[] = [];
 
-    const response = await fetch(url, {
-      headers: buildHeaders(apiKey),
-      next: { revalidate: 3600 },
-    });
-
-    if (!response.ok) {
-      return {
-        detected,
-        matchStatus: "not_found",
-        searchQuery,
-        error: `Pokemon TCG API fout (${response.status})`,
-      };
-    }
-
-    const payload = (await response.json()) as SearchResponse;
-    if (!payload.data?.length) {
-      const fallbackUrl = new URL(`${API_BASE}/cards`);
-      fallbackUrl.searchParams.set("q", `name:"${escapeQuery(detected.name)}"`);
-      fallbackUrl.searchParams.set("pageSize", "5");
-
-      const fallbackResponse = await fetch(fallbackUrl, {
-        headers: buildHeaders(apiKey),
-        next: { revalidate: 3600 },
-      });
-
-      if (!fallbackResponse.ok) {
-        return {
-          detected,
-          matchStatus: "not_found",
-          searchQuery,
-          error: "Geen match gevonden",
-        };
+    for (const query of searchQueries) {
+      const results = await searchCards(query, apiKey);
+      for (const card of results) {
+        if (seen.has(card.id)) continue;
+        seen.add(card.id);
+        candidates.push(card);
       }
 
-      const fallbackPayload = (await fallbackResponse.json()) as SearchResponse;
-      if (!fallbackPayload.data?.length) {
-        return { detected, matchStatus: "not_found", searchQuery };
+      if (candidates.length > 0) {
+        const bestSoFar = [...candidates].sort(
+          (a, b) => scoreMatch(detected, b) - scoreMatch(detected, a),
+        )[0];
+        if (bestSoFar && scoreMatch(detected, bestSoFar) >= 75) {
+          break;
+        }
       }
-
-      const bestFallback = [...fallbackPayload.data].sort(
-        (a, b) => scoreMatch(detected, b) - scoreMatch(detected, a),
-      )[0];
-
-      return {
-        detected,
-        matchStatus: "partial",
-        searchQuery,
-        card: mapCard(bestFallback),
-      };
     }
 
-    const best = [...payload.data].sort(
+    if (!candidates.length) {
+      return { detected, matchStatus: "not_found", searchQuery: primaryQuery };
+    }
+
+    const best = [...candidates].sort(
       (a, b) => scoreMatch(detected, b) - scoreMatch(detected, a),
     )[0];
     const bestScore = scoreMatch(detected, best);
+    const mapped = await attachTcgdexPricing(mapCard(best), detected);
 
     return {
       detected,
-      matchStatus: bestScore >= 75 ? "matched" : bestScore >= 40 ? "partial" : "not_found",
-      searchQuery,
-      card: mapCard(best),
+      matchStatus: resolveMatchStatus(detected, best, bestScore),
+      searchQuery: primaryQuery,
+      card: mapped,
+      error:
+        mapped.prices.length === 0
+          ? "Geen Cardmarket prijs gevonden via TCGdex."
+          : undefined,
     };
   } catch (error) {
     return {
       detected,
       matchStatus: "not_found",
-      searchQuery,
+      searchQuery: primaryQuery,
       error: error instanceof Error ? error.message : "Onbekende fout bij lookup",
     };
   }
@@ -196,7 +258,7 @@ export async function lookupCards(
 
   for (const card of detected) {
     results.push(await lookupCard(card, apiKey));
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
 
   return results;

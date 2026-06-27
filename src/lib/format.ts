@@ -1,20 +1,5 @@
 import type { CardCondition, MatchedCard, ScanResponse } from "@/lib/types";
 
-/** Vaste wisselkoers USD → EUR voor PnL-berekening */
-export const USD_TO_EUR = 0.92;
-
-export function usdToEur(usd: number): number {
-  return usd * USD_TO_EUR;
-}
-
-export function formatUsd(value?: number): string {
-  if (value === undefined || Number.isNaN(value)) return "—";
-  return new Intl.NumberFormat("nl-NL", {
-    style: "currency",
-    currency: "USD",
-  }).format(value);
-}
-
 export function formatEur(value?: number): string {
   if (value === undefined || Number.isNaN(value)) return "—";
   return new Intl.NumberFormat("nl-NL", {

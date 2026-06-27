@@ -30,7 +30,7 @@ export type Album = {
 
 export type AlbumSummary = {
   totalCards: number;
-  totalMarketValueUsd: number;
+  totalMarketValueEur: number;
   totalPurchasePriceEur: number;
   totalPnlEur: number;
   matched: number;

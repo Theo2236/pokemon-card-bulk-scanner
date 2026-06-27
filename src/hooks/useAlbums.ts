@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Album, AlbumCardEntry, AlbumPhoto } from "@/lib/album-types";
 import { deleteAlbumFromStorage, loadAllAlbums, saveAlbum } from "@/lib/album-storage";
+import { isSuspiciousMatch } from "@/lib/match-utils";
 import type { ScanResponse } from "@/lib/types";
 
 function generateId(): string {
@@ -21,6 +22,12 @@ function createEmptyAlbum(name: string): Album {
   };
 }
 
+function sortAlbums(albums: Album[]): Album[] {
+  return [...albums].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  );
+}
+
 export function useAlbums() {
   const [albums, setAlbums] = useState<Album[]>([]);
   const [activeAlbumId, setActiveAlbumId] = useState<string | null>(null);
@@ -37,36 +44,44 @@ export function useAlbums() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const persist = useCallback(async (album: Album) => {
-    const updated = { ...album, updatedAt: new Date().toISOString() };
-    await saveAlbum(updated);
-    setAlbums((prev) => {
-      const idx = prev.findIndex((a) => a.id === updated.id);
-      if (idx === -1) return [updated, ...prev];
-      const next = [...prev];
-      next[idx] = updated;
-      return next.sort(
-        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-      );
-    });
-    return updated;
-  }, []);
+  const updateAlbum = useCallback(
+    async (albumId: string, updater: (album: Album) => Album) => {
+      let updated: Album | null = null;
 
-  const createAlbum = useCallback(
-    async (name: string) => {
-      const album = createEmptyAlbum(name);
-      await persist(album);
-      setActiveAlbumId(album.id);
-      return album;
+      setAlbums((prev) => {
+        const album = prev.find((item) => item.id === albumId);
+        if (!album) return prev;
+
+        updated = {
+          ...updater(album),
+          updatedAt: new Date().toISOString(),
+        };
+
+        return sortAlbums(prev.map((item) => (item.id === albumId ? updated! : item)));
+      });
+
+      if (updated) {
+        await saveAlbum(updated);
+      }
+
+      return updated;
     },
-    [persist],
+    [],
   );
+
+  const createAlbum = useCallback(async (name: string) => {
+    const album = createEmptyAlbum(name);
+    await saveAlbum(album);
+    setAlbums((prev) => sortAlbums([album, ...prev]));
+    setActiveAlbumId(album.id);
+    return album;
+  }, []);
 
   const deleteAlbum = useCallback(
     async (id: string) => {
       await deleteAlbumFromStorage(id);
       setAlbums((prev) => {
-        const next = prev.filter((a) => a.id !== id);
+        const next = prev.filter((album) => album.id !== id);
         if (activeAlbumId === id) {
           setActiveAlbumId(next[0]?.id ?? null);
         }
@@ -78,11 +93,9 @@ export function useAlbums() {
 
   const renameAlbum = useCallback(
     async (id: string, name: string) => {
-      const album = albums.find((a) => a.id === id);
-      if (!album) return;
-      await persist({ ...album, name });
+      await updateAlbum(id, (album) => ({ ...album, name }));
     },
-    [albums, persist],
+    [updateAlbum],
   );
 
   const addScanToAlbum = useCallback(
@@ -92,9 +105,6 @@ export function useAlbums() {
       imageDataUrl: string,
       mimeType: string,
     ) => {
-      const album = albums.find((a) => a.id === albumId);
-      if (!album) return;
-
       const photoId = generateId();
       const photo: AlbumPhoto = {
         id: photoId,
@@ -114,58 +124,70 @@ export function useAlbums() {
         error: matched.error,
       }));
 
-      await persist({
+      await updateAlbum(albumId, (album) => ({
         ...album,
         photos: [...album.photos, photo],
         cards: [...album.cards, ...newCards],
-      });
+      }));
     },
-    [albums, persist],
+    [updateAlbum],
   );
 
   const updateCardPurchasePrice = useCallback(
     async (albumId: string, cardId: string, purchasePrice: number | undefined) => {
-      const album = albums.find((a) => a.id === albumId);
-      if (!album) return;
-
-      await persist({
+      await updateAlbum(albumId, (album) => ({
         ...album,
-        cards: album.cards.map((c) =>
-          c.id === cardId ? { ...c, purchasePrice } : c,
+        cards: album.cards.map((card) =>
+          card.id === cardId ? { ...card, purchasePrice } : card,
         ),
-      });
+      }));
     },
-    [albums, persist],
+    [updateAlbum],
   );
 
   const removeCard = useCallback(
     async (albumId: string, cardId: string) => {
-      const album = albums.find((a) => a.id === albumId);
-      if (!album) return;
-
-      await persist({
+      await updateAlbum(albumId, (album) => ({
         ...album,
-        cards: album.cards.filter((c) => c.id !== cardId),
-      });
+        cards: album.cards.filter((card) => card.id !== cardId),
+      }));
     },
-    [albums, persist],
+    [updateAlbum],
+  );
+
+  const removeCards = useCallback(
+    async (albumId: string, cardIds: string[]) => {
+      const ids = new Set(cardIds);
+      await updateAlbum(albumId, (album) => ({
+        ...album,
+        cards: album.cards.filter((card) => !ids.has(card.id)),
+      }));
+    },
+    [updateAlbum],
+  );
+
+  const removeSuspiciousCards = useCallback(
+    async (albumId: string) => {
+      await updateAlbum(albumId, (album) => ({
+        ...album,
+        cards: album.cards.filter((card) => !isSuspiciousMatch(card)),
+      }));
+    },
+    [updateAlbum],
   );
 
   const removePhoto = useCallback(
     async (albumId: string, photoId: string) => {
-      const album = albums.find((a) => a.id === albumId);
-      if (!album) return;
-
-      await persist({
+      await updateAlbum(albumId, (album) => ({
         ...album,
-        photos: album.photos.filter((p) => p.id !== photoId),
-        cards: album.cards.filter((c) => c.photoId !== photoId),
-      });
+        photos: album.photos.filter((photo) => photo.id !== photoId),
+        cards: album.cards.filter((card) => card.photoId !== photoId),
+      }));
     },
-    [albums, persist],
+    [updateAlbum],
   );
 
-  const activeAlbum = albums.find((a) => a.id === activeAlbumId) ?? null;
+  const activeAlbum = albums.find((album) => album.id === activeAlbumId) ?? null;
 
   return {
     albums,
@@ -179,6 +201,8 @@ export function useAlbums() {
     addScanToAlbum,
     updateCardPurchasePrice,
     removeCard,
+    removeCards,
+    removeSuspiciousCards,
     removePhoto,
   };
 }

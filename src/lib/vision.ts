@@ -29,10 +29,15 @@ const VISION_PROMPT = `Je bent een expert in Pokémon TCG kaarten. Analyseer de 
 
 Regels:
 - Geef alle kaarten terug die je ziet, ook als ze deels overlappen.
-- Lees de kaartnaam, setnaam (indien zichtbaar), kaartnummer (bijv. 025/198), en rarity.
-- Schat de conditie in op basis van zichtbare slijtage.
-- confidence is 0-1 (hoe zeker je bent over de identificatie).
-- Als tekst onleesbaar is, geef je beste gok en lage confidence.
+- Lees EERST het kaartnummer rechtsonder (bijv. 025/165) — dit is het belangrijkste veld.
+- Lees daarna de setnaam zoals op de kaart gedrukt (set logo, copyright regel of set code). Raad de set NIET alleen op artwork.
+- Lees de Pokémon-naam bovenaan de kaart.
+- Lees rarity indien zichtbaar (Common, Uncommon, Rare, Ultra Rare, etc.).
+- cardNumber: exact formaat zoals op kaart (bijv. "025/165", "TG12", "SV001").
+- setName: korte officiële setnaam zoals op kaart (bijv. "151", "Paradox Rift", "Paldea Evolved", "Base Set").
+- Schat conditie in op basis van zichtbare slijtage.
+- confidence is 0-1 (hoe zeker je bent, vooral over nummer + set).
+- Als nummer of set onleesbaar is: lage confidence, laat veld leeg i.p.v. raden.
 - Antwoord ALLEEN met geldig JSON in dit formaat:
 {
   "cards": [
@@ -69,14 +74,24 @@ function parseVisionJson(raw: string): DetectedCard[] {
   }));
 }
 
+function visionMimeType(mimeType: string): string {
+  const normalized = mimeType.toLowerCase();
+  if (normalized === "image/jpg") return "image/jpeg";
+  if (["image/jpeg", "image/png", "image/webp", "image/gif"].includes(normalized)) {
+    return normalized;
+  }
+  return "image/jpeg";
+}
+
 async function analyzeWithGemini(
   imageBase64: string,
   mimeType: string,
   apiKey: string,
+  model: string,
   maxCards: number,
 ): Promise<DetectedCard[]> {
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -85,7 +100,7 @@ async function analyzeWithGemini(
           {
             parts: [
               { text: `${VISION_PROMPT}\n\nMaximaal ${maxCards} kaarten.` },
-              { inline_data: { mime_type: mimeType, data: imageBase64 } },
+              { inline_data: { mime_type: visionMimeType(mimeType), data: imageBase64 } },
             ],
           },
         ],
@@ -116,6 +131,7 @@ async function analyzeWithAnthropic(
   imageBase64: string,
   mimeType: string,
   apiKey: string,
+  model: string,
   maxCards: number,
 ): Promise<DetectedCard[]> {
   const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -126,7 +142,7 @@ async function analyzeWithAnthropic(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model,
       max_tokens: 4096,
       temperature: 0.1,
       messages: [
@@ -137,7 +153,7 @@ async function analyzeWithAnthropic(
               type: "image",
               source: {
                 type: "base64",
-                media_type: mimeType,
+                media_type: visionMimeType(mimeType),
                 data: imageBase64,
               },
             },
@@ -171,24 +187,62 @@ export async function analyzeBulkPhoto(options: {
   mimeType: string;
   geminiKey?: string;
   anthropicKey?: string;
+  geminiModel?: string;
+  anthropicModel?: string;
   maxCards: number;
 }): Promise<{ cards: DetectedCard[]; provider: "gemini" | "anthropic" }> {
-  const { imageBase64, mimeType, geminiKey, anthropicKey, maxCards } = options;
+  const {
+    imageBase64,
+    mimeType,
+    geminiKey,
+    anthropicKey,
+    geminiModel = "gemini-2.5-flash",
+    anthropicModel = "claude-sonnet-4-6",
+    maxCards,
+  } = options;
 
   if (geminiKey) {
     try {
-      const cards = await analyzeWithGemini(imageBase64, mimeType, geminiKey, maxCards);
+      const cards = await analyzeWithGemini(
+        imageBase64,
+        mimeType,
+        geminiKey,
+        geminiModel,
+        maxCards,
+      );
       return { cards, provider: "gemini" };
     } catch (geminiError) {
       if (!anthropicKey) throw geminiError;
-      console.warn("Gemini mislukt, fallback naar Anthropic:", geminiError);
-      const cards = await analyzeWithAnthropic(imageBase64, mimeType, anthropicKey, maxCards);
-      return { cards, provider: "anthropic" };
+      const geminiMessage =
+        geminiError instanceof Error ? geminiError.message : "Onbekende Gemini-fout";
+      console.warn("Gemini mislukt, fallback naar Anthropic:", geminiMessage);
+      try {
+        const cards = await analyzeWithAnthropic(
+          imageBase64,
+          mimeType,
+          anthropicKey,
+          anthropicModel,
+          maxCards,
+        );
+        return { cards, provider: "anthropic" };
+      } catch (anthropicError) {
+        const anthropicMessage =
+          anthropicError instanceof Error ? anthropicError.message : "Onbekende Anthropic-fout";
+        throw new Error(
+          `Vision AI mislukt. Gemini: ${geminiMessage}. Anthropic (fallback): ${anthropicMessage}`,
+        );
+      }
     }
   }
 
   if (anthropicKey) {
-    const cards = await analyzeWithAnthropic(imageBase64, mimeType, anthropicKey, maxCards);
+    const cards = await analyzeWithAnthropic(
+      imageBase64,
+      mimeType,
+      anthropicKey,
+      anthropicModel,
+      maxCards,
+    );
     return { cards, provider: "anthropic" };
   }
 

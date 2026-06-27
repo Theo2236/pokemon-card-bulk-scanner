@@ -1,21 +1,26 @@
 import * as XLSX from "xlsx";
 import type { Album, AlbumSummary } from "@/lib/album-types";
-import { bestMarketPrice, conditionLabel, statusLabel, usdToEur } from "@/lib/format";
+import { bestMarketPrice, conditionLabel, statusLabel } from "@/lib/format";
 
-function cardMarketUsd(card: Album["cards"][number]): number | undefined {
-  return bestMarketPrice({ detected: card.detected, matchStatus: card.matchStatus, card: card.card, searchQuery: card.searchQuery });
+function cardMarketEur(card: Album["cards"][number]): number | undefined {
+  return bestMarketPrice({
+    detected: card.detected,
+    matchStatus: card.matchStatus,
+    card: card.card,
+    searchQuery: card.searchQuery,
+  });
 }
 
 export function computeAlbumSummary(album: Album): AlbumSummary {
-  let totalMarketValueUsd = 0;
+  let totalMarketValueEur = 0;
   let totalPurchasePriceEur = 0;
   let matched = 0;
   let partial = 0;
   let notFound = 0;
 
   for (const card of album.cards) {
-    const market = cardMarketUsd(card);
-    if (market !== undefined) totalMarketValueUsd += market;
+    const market = cardMarketEur(card);
+    if (market !== undefined) totalMarketValueEur += market;
     if (card.purchasePrice !== undefined) totalPurchasePriceEur += card.purchasePrice;
 
     switch (card.matchStatus) {
@@ -35,12 +40,11 @@ export function computeAlbumSummary(album: Album): AlbumSummary {
     }
   }
 
-  const totalMarketEur = usdToEur(totalMarketValueUsd);
-  const totalPnlEur = totalMarketEur - totalPurchasePriceEur;
+  const totalPnlEur = totalMarketValueEur - totalPurchasePriceEur;
 
   return {
     totalCards: album.cards.length,
-    totalMarketValueUsd,
+    totalMarketValueEur,
     totalPurchasePriceEur,
     totalPnlEur,
     matched,
@@ -53,8 +57,7 @@ export function exportAlbumToExcel(album: Album): void {
   const summary = computeAlbumSummary(album);
 
   const rows = album.cards.map((card) => {
-    const marketUsd = cardMarketUsd(card);
-    const marketEur = marketUsd !== undefined ? usdToEur(marketUsd) : undefined;
+    const marketEur = cardMarketEur(card);
     const purchase = card.purchasePrice;
     const pnl =
       marketEur !== undefined && purchase !== undefined ? marketEur - purchase : undefined;
@@ -66,12 +69,11 @@ export function exportAlbumToExcel(album: Album): void {
       Zeldzaamheid: card.card?.rarity ?? card.detected.rarity ?? "",
       Conditie: conditionLabel(card.detected.condition),
       Status: statusLabel(card.matchStatus),
-      "Marktprijs (USD)": marketUsd ?? "",
       "Marktprijs (EUR)": marketEur !== undefined ? Math.round(marketEur * 100) / 100 : "",
       "Betaald (EUR)": purchase ?? "",
       "PnL (EUR)": pnl !== undefined ? Math.round(pnl * 100) / 100 : "",
       "Gescand op": new Date(card.scannedAt).toLocaleString("nl-NL"),
-      TCGPlayer: card.card?.tcgplayerUrl ?? "",
+      Cardmarket: card.card?.cardmarketUrl ?? "",
     };
   });
 
@@ -84,12 +86,8 @@ export function exportAlbumToExcel(album: Album): void {
     { Naam: "Gedeeltelijk", Set: summary.partial },
     { Naam: "Niet gevonden", Set: summary.notFound },
     {
-      Naam: "Totale marktwaarde (USD)",
-      Set: Math.round(summary.totalMarketValueUsd * 100) / 100,
-    },
-    {
       Naam: "Totale marktwaarde (EUR)",
-      Set: Math.round(usdToEur(summary.totalMarketValueUsd) * 100) / 100,
+      Set: Math.round(summary.totalMarketValueEur * 100) / 100,
     },
     { Naam: "Totaal betaald (EUR)", Set: Math.round(summary.totalPurchasePriceEur * 100) / 100 },
     { Naam: "Totale PnL (EUR)", Set: Math.round(summary.totalPnlEur * 100) / 100 },

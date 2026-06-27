@@ -38,9 +38,9 @@ describe("computeAlbumSummary", () => {
   it("berekent marktwaarde, aankoop en PnL", () => {
     const summary = computeAlbumSummary(baseAlbum);
     expect(summary.totalCards).toBe(1);
-    expect(summary.totalMarketValueUsd).toBe(10);
+    expect(summary.totalMarketValueEur).toBe(10);
     expect(summary.totalPurchasePriceEur).toBe(5);
-    expect(summary.totalPnlEur).toBeCloseTo(10 * 0.92 - 5);
+    expect(summary.totalPnlEur).toBeCloseTo(5);
     expect(summary.matched).toBe(1);
   });
 });

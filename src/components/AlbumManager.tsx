@@ -4,7 +4,15 @@ import { useState } from "react";
 import { AlbumDetail } from "@/components/AlbumDetail";
 import { AlbumList } from "@/components/AlbumList";
 import { useAlbums } from "@/hooks/useAlbums";
-import type { ScanResponse } from "@/lib/types";
+import { buildScanSummary, isSuspiciousMatch } from "@/lib/match-utils";
+import type { MatchedCard, ScanResponse } from "@/lib/types";
+
+type PendingScan = {
+  scan: ScanResponse;
+  dataUrl: string;
+  mimeType: string;
+  cards: MatchedCard[];
+};
 
 export function AlbumManager() {
   const {
@@ -19,12 +27,14 @@ export function AlbumManager() {
     addScanToAlbum,
     updateCardPurchasePrice,
     removeCard,
+    removeSuspiciousCards,
     removePhoto,
   } = useAlbums();
 
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [lastScan, setLastScan] = useState<ScanResponse | null>(null);
+  const [pendingScan, setPendingScan] = useState<PendingScan | null>(null);
 
   async function handleScan(payload: { image: string; mimeType: string; dataUrl: string }) {
     if (!activeAlbumId) {
@@ -34,6 +44,7 @@ export function AlbumManager() {
 
     setIsScanning(true);
     setScanError(null);
+    setPendingScan(null);
 
     try {
       const response = await fetch("/api/scan", {
@@ -48,13 +59,56 @@ export function AlbumManager() {
         throw new Error(data.error ?? "Scan mislukt");
       }
 
-      await addScanToAlbum(activeAlbumId, data, payload.dataUrl, payload.mimeType);
-      setLastScan(data);
+      setPendingScan({
+        scan: data,
+        dataUrl: payload.dataUrl,
+        mimeType: payload.mimeType,
+        cards: data.cards,
+      });
     } catch (err) {
       setScanError(err instanceof Error ? err.message : "Onbekende fout");
     } finally {
       setIsScanning(false);
     }
+  }
+
+  async function confirmPendingScan() {
+    if (!pendingScan || !activeAlbumId || pendingScan.cards.length === 0) return;
+
+    const confirmedScan: ScanResponse = {
+      ...pendingScan.scan,
+      cards: pendingScan.cards,
+      summary: buildScanSummary(pendingScan.cards),
+    };
+
+    await addScanToAlbum(
+      activeAlbumId,
+      confirmedScan,
+      pendingScan.dataUrl,
+      pendingScan.mimeType,
+    );
+    setLastScan(confirmedScan);
+    setPendingScan(null);
+  }
+
+  function removePendingCard(index: number) {
+    setPendingScan((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        cards: current.cards.filter((_, cardIndex) => cardIndex !== index),
+      };
+    });
+  }
+
+  function removePendingSuspicious() {
+    setPendingScan((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        cards: current.cards.filter((card) => !isSuspiciousMatch(card)),
+      };
+    });
   }
 
   if (isLoading) {
@@ -88,6 +142,7 @@ export function AlbumManager() {
             setActiveAlbumId(id);
             setLastScan(null);
             setScanError(null);
+            setPendingScan(null);
           }}
           onCreate={(name) => void createAlbum(name)}
           onDelete={(id) => void deleteAlbum(id)}
@@ -104,8 +159,22 @@ export function AlbumManager() {
               void updateCardPurchasePrice(activeAlbum.id, cardId, price)
             }
             onRemoveCard={(cardId) => void removeCard(activeAlbum.id, cardId)}
+            onRemoveSuspiciousCards={() => void removeSuspiciousCards(activeAlbum.id)}
             onRemovePhoto={(photoId) => void removePhoto(activeAlbum.id, photoId)}
             lastScan={lastScan}
+            pendingScan={
+              pendingScan
+                ? {
+                    scan: pendingScan.scan,
+                    previewUrl: pendingScan.dataUrl,
+                    cards: pendingScan.cards,
+                    onRemoveCard: removePendingCard,
+                    onRemoveSuspicious: removePendingSuspicious,
+                    onConfirm: () => void confirmPendingScan(),
+                    onCancel: () => setPendingScan(null),
+                  }
+                : null
+            }
           />
         ) : (
           <div className="flex min-h-64 flex-1 items-center justify-center rounded-2xl border border-dashed border-white/15 bg-white/5">
@@ -122,7 +191,7 @@ export function AlbumManager() {
         <ul className="mt-2 list-inside list-disc space-y-1">
           <li>Maak aparte albums per set, aankoop of verkooplot</li>
           <li>Voeg meerdere foto&apos;s toe aan hetzelfde album</li>
-          <li>Marktprijzen komen van TCGPlayer (USD); PnL wordt berekend in EUR (koers 0,92)</li>
+          <li>Marktprijzen komen van Cardmarket via TCGdex (EUR, dagelijks bijgewerkt)</li>
           <li>Exporteer je album naar Excel voor je administratie</li>
         </ul>
       </footer>

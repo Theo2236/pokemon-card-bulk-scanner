@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { fileToBase64 } from "@/lib/format";
+import { normalizeImageForScan } from "@/lib/image-normalize";
 
 type ScannerUploadProps = {
   onScan: (payload: { image: string; mimeType: string; dataUrl: string }) => Promise<void>;
@@ -13,13 +14,19 @@ type ScannerUploadProps = {
 export function ScannerUpload({
   onScan,
   isScanning,
-  label = "Sleep of klik om een foto toe te voegen",
+  label = "Kies een foto uit je bibliotheek of maak een nieuwe",
   compact = false,
 }: ScannerUploadProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const libraryInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const resetInputs = useCallback(() => {
+    if (libraryInputRef.current) libraryInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
+  }, []);
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -35,21 +42,36 @@ export function ScannerUpload({
         return;
       }
 
-      const objectUrl = URL.createObjectURL(file);
+      const normalized = await normalizeImageForScan(file);
+      const objectUrl = URL.createObjectURL(normalized);
       setPreview(objectUrl);
 
       try {
-        const { base64, mimeType, dataUrl } = await fileToBase64(file);
+        const { base64, mimeType, dataUrl } = await fileToBase64(normalized);
         await onScan({ image: base64, mimeType, dataUrl });
         URL.revokeObjectURL(objectUrl);
         setPreview(null);
-        if (inputRef.current) inputRef.current.value = "";
-      } catch {
-        setError("Kon de afbeelding niet verwerken.");
+        resetInputs();
+      } catch (scanError) {
+        setError(
+          scanError instanceof Error
+            ? scanError.message
+            : "Kon de afbeelding niet verwerken.",
+        );
       }
     },
-    [onScan],
+    [onScan, resetInputs],
   );
+
+  const openLibrary = useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    libraryInputRef.current?.click();
+  }, []);
+
+  const openCamera = useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    cameraInputRef.current?.click();
+  }, []);
 
   const onDrop = useCallback(
     (event: React.DragEvent) => {
@@ -74,17 +96,26 @@ export function ScannerUpload({
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
-        className={`relative flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed transition ${
+        className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed transition ${
           compact ? "min-h-32 p-4" : "min-h-48 p-8"
         } ${
           dragOver
             ? "border-yellow-300 bg-yellow-300/10"
             : "border-white/20 hover:border-white/40 hover:bg-white/5"
         }`}
-        onClick={() => inputRef.current?.click()}
       >
         <input
-          ref={inputRef}
+          ref={libraryInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleFile(file);
+          }}
+        />
+        <input
+          ref={cameraInputRef}
           type="file"
           accept="image/*"
           capture="environment"
@@ -116,8 +147,35 @@ export function ScannerUpload({
             </h2>
             {!compact && (
               <p className="mt-2 max-w-md text-sm text-white/60">
-                Leg kaarten naast elkaar en maak een foto. Je kunt meerdere foto&apos;s per album
-                toevoegen.
+                Kies een bestaande foto uit je bibliotheek of maak een nieuwe. Meerdere foto&apos;s
+                per album mogelijk.
+              </p>
+            )}
+            <div
+              className={`mt-4 flex flex-wrap items-center justify-center gap-2 ${
+                compact ? "mt-3" : ""
+              }`}
+            >
+              <button
+                type="button"
+                onClick={openLibrary}
+                disabled={isScanning}
+                className="rounded-lg bg-yellow-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Bibliotheek
+              </button>
+              <button
+                type="button"
+                onClick={openCamera}
+                disabled={isScanning}
+                className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Camera
+              </button>
+            </div>
+            {!compact && (
+              <p className="mt-3 text-xs text-white/40">
+                Op desktop kun je ook een bestand hierheen slepen.
               </p>
             )}
           </div>

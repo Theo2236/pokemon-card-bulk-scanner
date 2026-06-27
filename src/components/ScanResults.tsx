@@ -4,7 +4,7 @@ import type { ScanResponse } from "@/lib/types";
 import {
   bestMarketPrice,
   conditionLabel,
-  formatUsd,
+  formatEur,
   statusColor,
   statusLabel,
 } from "@/lib/format";
@@ -22,7 +22,7 @@ export function ScanResults({ result }: ScanResultsProps) {
         <SummaryCard label="Gedeeltelijk" value={String(result.summary.partial)} accent="amber" />
         <SummaryCard
           label="Totale marktwaarde"
-          value={formatUsd(result.summary.totalMarketValue)}
+          value={formatEur(result.summary.totalMarketValue)}
           accent="yellow"
         />
       </div>
@@ -82,15 +82,15 @@ export function ScanResults({ result }: ScanResultsProps) {
 
                 <div className="shrink-0 text-right">
                   <p className="text-xs uppercase tracking-wide text-white/50">Marktprijs</p>
-                  <p className="text-xl font-bold text-yellow-300">{formatUsd(market)}</p>
-                  {card.card?.tcgplayerUrl && (
+                  <p className="text-xl font-bold text-yellow-300">{formatEur(market)}</p>
+                  {card.card?.cardmarketUrl && (
                     <a
-                      href={card.card.tcgplayerUrl}
+                      href={card.card.cardmarketUrl}
                       target="_blank"
                       rel="noreferrer"
                       className="mt-2 inline-block text-xs text-sky-300 hover:underline"
                     >
-                      TCGPlayer →
+                      Cardmarket →
                     </a>
                   )}
                 </div>
